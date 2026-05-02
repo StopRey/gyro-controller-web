@@ -8,6 +8,7 @@
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #111; color: #eee; }
     button { width: 100%; padding: 1rem; font-size: 1.1rem; border: none; border-radius: 8px; background: #2a7; color: #fff; cursor: pointer; }
+    button.secondary { background: #357; margin-top: 0.75rem; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     pre { background: #222; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; overflow-x: auto; }
     .warn { color: #fa4; }
@@ -24,6 +25,7 @@
   <h1>Gyro</h1>
   <div id="roomBanner">Use <code>?room=1234</code> (same as Unity).</div>
   <button type="button" id="startBtn">Start Control</button>
+  <button type="button" id="calibrateBtn" class="secondary" style="display:none">Калібрувати (нульова поза)</button>
   <p id="status" class="warn">Idle</p>
   <pre id="readout">—</pre>
 
@@ -32,6 +34,7 @@
     (function () {
       const roomFromUrl = (new URLSearchParams(location.search).get('room') || '').trim();
       const startBtn = document.getElementById('startBtn');
+      const calibrateBtn = document.getElementById('calibrateBtn');
       const statusEl = document.getElementById('status');
       const readout = document.getElementById('readout');
       const roomBanner = document.getElementById('roomBanner');
@@ -120,7 +123,19 @@
         sending = true;
         startGyroLoop();
         setStatus('Sending', 'ok');
+        calibrateBtn.style.display = 'block';
       }
+
+      calibrateBtn.addEventListener('click', function () {
+        if (!socket || !socket.connected || !sending) return;
+        socket.emit('gyro-calibrate', {
+          alpha: latest.alpha,
+          beta: latest.beta,
+          gamma: latest.gamma,
+        });
+        roomBanner.textContent = 'Калібровку надіслано — поточна поза телефона = нуль для сцени';
+        roomBanner.className = 'ok';
+      });
 
       startBtn.addEventListener('click', startControl);
       if (!window.isSecureContext) setStatus('Use HTTPS for gyro', 'err');
