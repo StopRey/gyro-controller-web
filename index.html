@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Gyro</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #111; color: #eee; }
+    button { width: 100%; padding: 1rem; font-size: 1.1rem; border: none; border-radius: 8px; background: #2a7; color: #fff; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: #222; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; overflow-x: auto; }
+    .warn { color: #fa4; }
+    .ok { color: #8d8; }
+    .err { color: #f66; }
+    #roomBanner { background: #1a3a2a; border: 1px solid #2a7; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <script>
+    const CONFIG = { SOCKET_SERVER_URL: 'https://your-app.onrender.com' };
+  </script>
+
+  <h1>Gyro</h1>
+  <div id="roomBanner">Use <code>?room=1234</code> (same as Unity).</div>
+  <button type="button" id="startBtn">Start Control</button>
+  <p id="status" class="warn">Idle</p>
+  <pre id="readout">—</pre>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
+  <script>
+    (function () {
+      const roomFromUrl = (new URLSearchParams(location.search).get('room') || '').trim();
+      const startBtn = document.getElementById('startBtn');
+      const statusEl = document.getElementById('status');
+      const readout = document.getElementById('readout');
+      const roomBanner = document.getElementById('roomBanner');
+
+      if (roomFromUrl) roomBanner.textContent = 'Room: ' + roomFromUrl;
+
+      const RATE_MS = Math.round(1000 / 30);
+      let latest = { alpha: 0, beta: 0, gamma: 0 };
+      let sending = false;
+      let intervalId = null;
+      let socket = null;
+
+      function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = cls || 'warn';
+      }
+
+      function ensureSocket() {
+        if (socket) return socket;
+        socket = io(CONFIG.SOCKET_SERVER_URL.replace(/\/$/, ''), {
+          transports: ['websocket', 'polling'],
+          path: '/socket.io/',
+        });
+        socket.on('connect', () => setStatus('Connected', 'ok'));
+        socket.on('disconnect', () => setStatus('Disconnected', 'err'));
+        socket.on('connect_error', (err) => setStatus(String(err && err.message ? err.message : err), 'err'));
+        return socket;
+      }
+
+      function startGyroLoop() {
+        if (intervalId != null) return;
+        intervalId = setInterval(() => {
+          if (!sending || !socket || !socket.connected) return;
+          socket.emit('gyro-data', { alpha: latest.alpha, beta: latest.beta, gamma: latest.gamma });
+        }, RATE_MS);
+      }
+
+      function onOrient(ev) {
+        if (ev.alpha == null && ev.beta == null && ev.gamma == null) return;
+        if (ev.alpha != null) latest.alpha = ev.alpha;
+        if (ev.beta != null) latest.beta = ev.beta;
+        if (ev.gamma != null) latest.gamma = ev.gamma;
+        readout.textContent = latest.alpha.toFixed(1) + ', ' + latest.beta.toFixed(1) + ', ' + latest.gamma.toFixed(1);
+      }
+
+      async function startControl() {
+        if (!roomFromUrl) {
+          setStatus('Need ?room= in URL', 'err');
+          return;
+        }
+        startBtn.disabled = true;
+        try {
+          if (typeof DeviceOrientationEvent !== 'undefined' &&
+              typeof DeviceOrientationEvent.requestPermission === 'function') {
+            if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') {
+              setStatus('Orientation denied', 'err');
+              startBtn.disabled = false;
+              return;
+            }
+          }
+        } catch (e) {
+          setStatus(e.message, 'err');
+          startBtn.disabled = false;
+          return;
+        }
+
+        const s = ensureSocket();
+        if (!s.connected) {
+          await new Promise((r) => {
+            if (s.connected) return r();
+            s.once('connect', r);
+            s.once('connect_error', r);
+          });
+        }
+        if (!s.connected) {
+          setStatus('No connection', 'err');
+          startBtn.disabled = false;
+          return;
+        }
+
+        s.emit('join-room', roomFromUrl);
+        roomBanner.textContent = 'Joined: ' + roomFromUrl;
+        roomBanner.className = 'ok';
+
+        window.addEventListener('deviceorientation', onOrient, true);
+        sending = true;
+        startGyroLoop();
+        setStatus('Sending', 'ok');
+      }
+
+      startBtn.addEventListener('click', startControl);
+      if (!window.isSecureContext) setStatus('Use HTTPS for gyro', 'err');
+    })();
+  </script>
+</body>
+</html>
