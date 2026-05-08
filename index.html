@@ -6,15 +6,29 @@
   <title>Gyro</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #111; color: #eee; }
-    button { width: 100%; padding: 1rem; font-size: 1.1rem; border: none; border-radius: 8px; background: #2a7; color: #fff; cursor: pointer; }
-    button.secondary { background: #357; margin-top: 0.75rem; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: radial-gradient(1200px 800px at 20% 0%, #1b2b2b 0%, #0b0f12 45%, #07090b 100%); color: #e9eef2; }
+    h1 { margin: 0 0 0.75rem; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.2px; }
+    .card { max-width: 520px; margin: 0 auto; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1rem; backdrop-filter: blur(8px); }
+    .subtle { opacity: 0.9; }
+    .muted { opacity: 0.7; font-size: 0.95rem; }
+    .kv { margin: 0.75rem 0 1rem; padding: 0.75rem; border-radius: 12px; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.08); }
+    .kv code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95rem; }
+
+    button { width: 100%; padding: 1rem; font-size: 1.1rem; border: none; border-radius: 12px; background: linear-gradient(180deg, #2fbf8f 0%, #1f9a73 100%); color: #062016; cursor: pointer; font-weight: 650; }
+    button.secondary { background: rgba(255,255,255,0.08); color: #e9eef2; border: 1px solid rgba(255,255,255,0.14); }
+    button.danger { background: rgba(255,90,90,0.18); color: #ffdada; border: 1px solid rgba(255,90,90,0.35); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    pre { background: #222; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; overflow-x: auto; }
+
+    .btnRow { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.75rem; }
+    .btnRow button { padding: 0.95rem; font-size: 1.05rem; }
+
     .warn { color: #fa4; }
     .ok { color: #8d8; }
     .err { color: #f66; }
-    #roomBanner { background: #1a3a2a; border: 1px solid #2a7; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
+    #banner { background: rgba(47,191,143,0.10); border: 1px solid rgba(47,191,143,0.28); border-radius: 12px; padding: 0.75rem; margin: 0.75rem 0 1rem; }
+    #banner.ok { background: rgba(47,191,143,0.12); border-color: rgba(47,191,143,0.34); }
+    #banner.err { background: rgba(255,90,90,0.10); border-color: rgba(255,90,90,0.25); }
+    #banner.warn { background: rgba(255,190,90,0.10); border-color: rgba(255,190,90,0.25); }
   </style>
 </head>
 <body>
@@ -22,24 +36,53 @@
     const CONFIG = { SOCKET_SERVER_URL: 'https://gyro-relay-backend.onrender.com' };
   </script>
 
-  <h1>Gyro</h1>
-  <div id="roomBanner">Use <code>?room=1234</code> (same as Unity).</div>
-  <button type="button" id="startBtn">Start Control</button>
-  <button type="button" id="calibrateBtn" class="secondary" style="display:none">Калібрувати (нульова поза)</button>
-  <p id="status" class="warn">Idle</p>
-  <pre id="readout">—</pre>
+  <div class="card">
+    <h1 id="title">3D Viewer Control</h1>
+    <div class="kv">
+      <div class="muted">Project</div>
+      <div class="subtle" id="projectName">—</div>
+      <div class="muted" style="margin-top:0.5rem">Room</div>
+      <div><code id="roomCode">—</code></div>
+    </div>
+
+    <div id="banner" class="warn">Ready</div>
+
+    <div id="startScreen">
+      <button type="button" id="startBtn">Start Control</button>
+      <div class="muted" style="margin-top:0.75rem">
+        Tip: gyro permissions require HTTPS (or localhost).
+      </div>
+    </div>
+
+    <div id="controlScreen" style="display:none">
+      <button type="button" id="calibrateBtn" class="secondary">Calibrate (set current pose as zero)</button>
+      <div class="btnRow">
+        <button type="button" id="zoomOutBtn" class="secondary">Zoom −</button>
+        <button type="button" id="zoomInBtn" class="secondary">Zoom +</button>
+      </div>
+      <button type="button" id="stopBtn" class="danger" style="margin-top:0.75rem">Stop</button>
+    </div>
+  </div>
 
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
   <script>
     (function () {
       const roomFromUrl = (new URLSearchParams(location.search).get('room') || '').trim();
+      const projectFromUrl = (new URLSearchParams(location.search).get('project') || '').trim();
       const startBtn = document.getElementById('startBtn');
       const calibrateBtn = document.getElementById('calibrateBtn');
-      const statusEl = document.getElementById('status');
-      const readout = document.getElementById('readout');
-      const roomBanner = document.getElementById('roomBanner');
+      const zoomInBtn = document.getElementById('zoomInBtn');
+      const zoomOutBtn = document.getElementById('zoomOutBtn');
+      const stopBtn = document.getElementById('stopBtn');
 
-      if (roomFromUrl) roomBanner.textContent = 'Room: ' + roomFromUrl;
+      const banner = document.getElementById('banner');
+      const roomCode = document.getElementById('roomCode');
+      const projectName = document.getElementById('projectName');
+      const startScreen = document.getElementById('startScreen');
+      const controlScreen = document.getElementById('controlScreen');
+
+      roomCode.textContent = roomFromUrl || 'Missing (?room=1234)';
+      projectName.textContent = projectFromUrl || '—';
 
       const RATE_MS = Math.round(1000 / 30);
       let latest = { alpha: 0, beta: 0, gamma: 0 };
@@ -47,9 +90,9 @@
       let intervalId = null;
       let socket = null;
 
-      function setStatus(text, cls) {
-        statusEl.textContent = text;
-        statusEl.className = cls || 'warn';
+      function setBanner(text, cls) {
+        banner.textContent = text;
+        banner.className = cls || 'warn';
       }
 
       function ensureSocket() {
@@ -58,9 +101,9 @@
           transports: ['websocket', 'polling'],
           path: '/socket.io/',
         });
-        socket.on('connect', () => setStatus('Connected', 'ok'));
-        socket.on('disconnect', () => setStatus('Disconnected', 'err'));
-        socket.on('connect_error', (err) => setStatus(String(err && err.message ? err.message : err), 'err'));
+        socket.on('connect', () => setBanner('Connected', 'ok'));
+        socket.on('disconnect', () => setBanner('Disconnected', 'err'));
+        socket.on('connect_error', (err) => setBanner(String(err && err.message ? err.message : err), 'err'));
         return socket;
       }
 
@@ -77,12 +120,11 @@
         if (ev.alpha != null) latest.alpha = ev.alpha;
         if (ev.beta != null) latest.beta = ev.beta;
         if (ev.gamma != null) latest.gamma = ev.gamma;
-        readout.textContent = latest.alpha.toFixed(1) + ', ' + latest.beta.toFixed(1) + ', ' + latest.gamma.toFixed(1);
       }
 
       async function startControl() {
         if (!roomFromUrl) {
-          setStatus('Need ?room= in URL', 'err');
+          setBanner('Missing room: open the link/QR from Unity (it contains ?room=...)', 'err');
           return;
         }
         startBtn.disabled = true;
@@ -90,13 +132,13 @@
           if (typeof DeviceOrientationEvent !== 'undefined' &&
               typeof DeviceOrientationEvent.requestPermission === 'function') {
             if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') {
-              setStatus('Orientation denied', 'err');
+              setBanner('Orientation permission denied', 'err');
               startBtn.disabled = false;
               return;
             }
           }
         } catch (e) {
-          setStatus(e.message, 'err');
+          setBanner(e.message, 'err');
           startBtn.disabled = false;
           return;
         }
@@ -110,20 +152,20 @@
           });
         }
         if (!s.connected) {
-          setStatus('No connection', 'err');
+          setBanner('No connection to relay', 'err');
           startBtn.disabled = false;
           return;
         }
 
         s.emit('join-room', roomFromUrl);
-        roomBanner.textContent = 'Joined: ' + roomFromUrl;
-        roomBanner.className = 'ok';
+        setBanner('Joined room. Move your phone to rotate the scene.', 'ok');
 
         window.addEventListener('deviceorientation', onOrient, true);
         sending = true;
         startGyroLoop();
-        setStatus('Sending', 'ok');
-        calibrateBtn.style.display = 'block';
+
+        startScreen.style.display = 'none';
+        controlScreen.style.display = 'block';
       }
 
       calibrateBtn.addEventListener('click', function () {
@@ -133,12 +175,32 @@
           beta: latest.beta,
           gamma: latest.gamma,
         });
-        roomBanner.textContent = 'Калібровку надіслано — поточна поза телефона = нуль для сцени';
-        roomBanner.className = 'ok';
+        setBanner('Calibrated: current phone pose = zero', 'ok');
+      });
+
+      function sendZoom(delta) {
+        if (!socket || !socket.connected || !sending) return;
+        socket.emit('gyro-zoom', { delta: delta });
+      }
+
+      zoomInBtn.addEventListener('click', () => sendZoom(+1));
+      zoomOutBtn.addEventListener('click', () => sendZoom(-1));
+
+      stopBtn.addEventListener('click', () => {
+        sending = false;
+        if (intervalId != null) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+        try { window.removeEventListener('deviceorientation', onOrient, true); } catch {}
+        setBanner('Stopped. Tap Start Control to resume.', 'warn');
+        controlScreen.style.display = 'none';
+        startScreen.style.display = 'block';
+        startBtn.disabled = false;
       });
 
       startBtn.addEventListener('click', startControl);
-      if (!window.isSecureContext) setStatus('Use HTTPS for gyro', 'err');
+      if (!window.isSecureContext) setBanner('Use HTTPS for gyro (permissions)', 'err');
     })();
   </script>
 </body>
