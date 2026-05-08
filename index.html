@@ -145,6 +145,19 @@
         socket.on('connect', () => setBanner('Connected', 'ok'));
         socket.on('disconnect', () => setBanner('Disconnected', 'err'));
         socket.on('connect_error', (err) => setBanner(String(err && err.message ? err.message : err), 'err'));
+        socket.on('kicked', () => {
+          // Another controller joined the same room and replaced this phone.
+          sending = false;
+          if (intervalId != null) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+          try { window.removeEventListener('deviceorientation', onOrient, true); } catch {}
+          controlScreen.style.display = 'none';
+          startScreen.style.display = 'block';
+          startBtn.disabled = false;
+          setBanner('Disconnected: another phone took control of this room.', 'err');
+        });
         return socket;
       }
 
@@ -198,7 +211,7 @@
           return;
         }
 
-        s.emit('join-room', roomFromUrl);
+        s.emit('join-room', { roomId: roomFromUrl, role: 'controller' });
         setBanner('Joined room. Move your phone to rotate the scene.', 'ok');
 
         window.addEventListener('deviceorientation', onOrient, true);
